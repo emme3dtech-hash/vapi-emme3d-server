@@ -1,0 +1,16 @@
+{
+  "name": "vapi-emme3d-server",
+  "version": "1.0.0",
+  "description": "Webhook server for Vapi.ai integration with EMME3D.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "EMME3D",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.4",
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  }
+}
