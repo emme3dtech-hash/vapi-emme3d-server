@@ -9,8 +9,8 @@
   "author": "EMME3D",
   "license": "ISC",
   "dependencies": {
-    "@supabase/supabase-js": "^2.38.4",
     "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
   }
 }
