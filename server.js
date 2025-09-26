@@ -38,6 +38,39 @@ app.post('/vapi-webhook', async (req, res) => {
     return res.json({ status: 'ok' });
 });
 
+// === ТЕСТОВЫЙ ЭНДПОИНТ ДЛЯ ПРОВЕРКИ СВЯЗИ С N8N ===
+app.get('/ping-n8n', async (req, res) => {
+    console.log('[Ping Test] Начинаем проверку связи с n8n...');
+    try {
+        const targetUrl = process.env.N8N_WEBHOOK_URL;
+        console.log(`[Ping Test] Целевой URL: ${targetUrl}`);
+
+        const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ping_test: true, message: 'ping from vapi-emme3d-server' })
+        });
+
+        console.log(`[Ping Test] Ответ получен! Статус: ${response.status} ${response.statusText}`);
+        
+        const responseBody = await response.text();
+        console.log('[Ping Test] Тело ответа:', responseBody);
+
+        res.json({
+            status: 'SUCCESS',
+            n8n_response_status: `${response.status} ${response.statusText}`,
+            n8n_response_body: responseBody
+        });
+
+    } catch (error) {
+        console.error('[Ping Test] КРИТИЧЕСКАЯ ОШИБКА:', error);
+        res.status(500).json({
+            status: 'FAILURE',
+            error_message: error.message,
+            error_code: error.code
+        });
+    }
+});
 
 // --- ФУНКЦИЯ ДЛЯ СВЯЗИ С N8N ---
 
@@ -81,3 +114,4 @@ async function askN8NAgent(userInput, sessionId) {
 app.listen(PORT, () => {
     console.log(`Сервер-мост для Vapi <-> n8n запущен на порту ${PORT}`);
 });
+
