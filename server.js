@@ -1,108 +1,83 @@
-// Импортируем необходимые модули
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
+const fetch = require('node-fetch');
 
-// Создаем приложение Express
 const app = express();
 app.use(express.json());
 app.use(cors());
 
 // --- НАСТРОЙКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ---
-// Убедитесь, что вы добавили эти переменные в настройках вашего хостинга (Railway, Render и т.д.)
-const VAPI_PRIVATE_KEY = process.env.VAPI_PRIVATE_KEY;
-const VAPI_ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL; // URL вашего n8n-воркфлоу
 const PORT = process.env.PORT || 3000;
 
-// Инициализация клиента Supabase
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// --- ОСНОВНЫЕ ЭНДПОИНТЫ ---
-
-// Эндпоинт для проверки "здоровья" сервера
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-// Главный эндпоинт для обработки webhook'ов от Vapi.ai
-app.post('/vapi-webhook', async (req, res) => {
-  const payload = req.body;
-
-  // Проверяем, является ли это событием вызова функции
-  if (payload.type === 'function-call') {
-    const { functionCall } = payload;
-    console.log(`Получен вызов функции: ${functionCall.name}`);
-
-    let result;
-    // Обрабатываем разные функции, которые может вызвать ассистент
-    if (functionCall.name === 'findProduct') {
-      result = await handleFindProduct(functionCall.parameters);
-    } else if (functionCall.name === 'transferCall') {
-      result = await handleTransferCall(functionCall.parameters);
-    } else {
-      // Если функция неизвестна, возвращаем ошибку
-      result = { error: 'Unknown function name' };
-    }
-    
-    // Отправляем результат обратно в Vapi
-    return res.json(result);
-  }
-
-  // Для всех остальных типов событий просто возвращаем статус "ok"
-  return res.json({ status: 'ok' });
-});
-
-
-// --- ЛОГИКА ОБРАБОТКИ ФУНКЦИЙ ---
-
-/**
- * Обрабатывает поиск продукта в базе данных Supabase.
- * @param {object} params - Параметры от Vapi: { partName, carBrand, carModel }
- */
-async function handleFindProduct(params) {
-  const { partName, carBrand, carModel } = params;
-  console.log(`Ищу продукт: ${partName} для ${carBrand} ${carModel}`);
-
-  // Здесь будет ваша логика поиска в таблице Supabase
-  // Пока что возвращаем "заглушку"
-  
-  // Пример поиска (нужно адаптировать под вашу структуру таблиц)
-  /*
-  const { data, error } = await supabase
-    .from('products')
-    .select('product_name, price, stock_status')
-    .ilike('product_name', `%${partName}%`)
-    .eq('brand', carBrand)
-    .limit(1);
-
-  if (error) {
-    console.error('Ошибка поиска в Supabase:', error);
-    return { result: "Вибачте, сталася помилка під час пошуку." };
-  }
-
-  if (data && data.length > 0) {
-    return { result: `Знайдено: ${data[0].product_name}. Ціна: ${data[0].price} гривень. Статус: ${data[0].stock_status}.` };
-  }
-  */
-
-  // Возвращаем тестовый результат
-  return { result: `Знайшов деталь '${partName}' для ${carBrand} ${carModel}. Орієнтовна ціна 500 гривень. Деталь є в наявності.` };
+// Проверяем, что URL для n8n задан
+if (!N8N_WEBHOOK_URL) {
+    console.error('Критическая ошибка: Переменная окружения N8N_WEBHOOK_URL не установлена.');
+    process.exit(1);
 }
 
+// --- ГЛАВНЫЙ ЭНДПОИНТ ---
+
+// Эндпоинт для обработки webhook'ов от Vapi.ai
+app.post('/vapi-webhook', async (req, res) => {
+    const payload = req.body;
+
+    // Ждем только вызов функции 'getAgentResponse'
+    if (payload.type === 'function-call' && payload.functionCall.name === 'getAgentResponse') {
+        const { userInput } = payload.functionCall.parameters;
+        console.log(`Получен текст от пользователя: "${userInput}"`);
+
+        // Отправляем текст в n8n и ждем ответ
+        const agentResponse = await askN8NAgent(userInput, payload.call.id);
+
+        // Отправляем результат обратно в Vapi
+        return res.json({ result: agentResponse });
+    }
+
+    // На все остальные события от Vapi (начало/конец звонка и т.д.) просто отвечаем OK
+    return res.json({ status: 'ok' });
+});
+
+
+// --- ФУНКЦИЯ ДЛЯ СВЯЗИ С N8N ---
+
 /**
- * Обрабатывает запрос на перевод звонка.
+ * Отправляет сообщение в n8n и возвращает ответ агента.
+ * @param {string} userInput - Текст от пользователя.
+ * @param {string} sessionId - ID звонка от Vapi для идентификации сессии.
  */
-async function handleTransferCall(params) {
-    console.log(`Перевод звонка по причине: ${params.reason}`);
-    // В реальном приложении здесь будет логика перевода звонка
-    // Пока что просто информируем ассистента
-    return { result: "Добре, я з'єдную вас з нашим менеджером. Будь ласка, залишайтесь на лінії." };
+async function askN8NAgent(userInput, sessionId) {
+    try {
+        const payload = {
+            userInput: userInput,
+            sessionId: `vapi_${sessionId}`
+        };
+        console.log('📤 Отправляем в n8n:', payload);
+
+        const response = await fetch(N8N_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            timeout: 15000
+        });
+
+        if (!response.ok) {
+            throw new Error(`n8n ответил ошибкой: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const aiResponse = result.output || result.text || 'Извините, я не смог обработать ваш запрос.';
+        console.log('📥 Получен ответ от n8n:', aiResponse);
+        return aiResponse;
+
+    } catch (error) {
+        console.error('❌ Ошибка при вызове n8n агента:', error);
+        return 'Простите, произошла техническая ошибка.';
+    }
 }
 
 
 // Запуск сервера
 app.listen(PORT, () => {
-  console.log(`Сервер для EMME3D Vapi запущен на порту ${PORT}`);
+    console.log(`Сервер-мост для Vapi <-> n8n запущен на порту ${PORT}`);
 });
