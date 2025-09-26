@@ -21,20 +21,19 @@ if (!N8N_WEBHOOK_URL) {
 // Эндпоинт для обработки webhook'ов от Vapi.ai
 app.post('/vapi-webhook', async (req, res) => {
     const payload = req.body;
+    // ДОБАВЛЕНО: Выводим в лог все, что прислал Vapi
+    console.log('--- VAPI PAYLOAD RECEIVED ---:', JSON.stringify(payload, null, 2));
 
     // Ждем только вызов функции 'getAgentResponse'
     if (payload.type === 'function-call' && payload.functionCall.name === 'getAgentResponse') {
         const { userInput } = payload.functionCall.parameters;
         console.log(`Получен текст от пользователя: "${userInput}"`);
 
-        // Отправляем текст в n8n и ждем ответ
         const agentResponse = await askN8NAgent(userInput, payload.call.id);
 
-        // Отправляем результат обратно в Vapi
         return res.json({ result: agentResponse });
     }
 
-    // На все остальные события от Vapi (начало/конец звонка и т.д.) просто отвечаем OK
     return res.json({ status: 'ok' });
 });
 
@@ -114,4 +113,5 @@ async function askN8NAgent(userInput, sessionId) {
 app.listen(PORT, () => {
     console.log(`Сервер-мост для Vapi <-> n8n запущен на порту ${PORT}`);
 });
+
 
